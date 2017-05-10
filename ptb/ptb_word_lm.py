@@ -54,7 +54,7 @@ import time
 import numpy as np
 import tensorflow as tf
 
-import reader
+from ptb import reader
 
 flags = tf.flags
 logging = tf.logging
@@ -75,7 +75,7 @@ FLAGS = flags.FLAGS
 def data_type():
   return tf.float16 if FLAGS.use_fp16 else tf.float32
 
-
+# PTBInput用于从reader.py中得到输入数据
 class PTBInput(object):
   """The input data."""
 
@@ -86,7 +86,7 @@ class PTBInput(object):
     self.input_data, self.targets = reader.ptb_producer(
         data, batch_size, num_steps, name=name)
 
-
+# PTBModel是主要模块
 class PTBModel(object):
   """The PTB model."""
 
@@ -98,6 +98,7 @@ class PTBModel(object):
     size = config.hidden_size
     vocab_size = config.vocab_size
 
+    # 返回RNN核
     # Slightly better results can be obtained with forget gate biases
     # initialized to 1 but the hyperparameters of the model would need to be
     # different than reported in the paper.
@@ -114,21 +115,28 @@ class PTBModel(object):
       else:
         return tf.contrib.rnn.BasicLSTMCell(
             size, forget_bias=0.0, state_is_tuple=True)
+
     attn_cell = lstm_cell
+    # 若处在训练过程中，要对RNN核进行Dropout包裹，可直接使用DropoutWrapper
     if is_training and config.keep_prob < 1:
       def attn_cell():
         return tf.contrib.rnn.DropoutWrapper(
             lstm_cell(), output_keep_prob=config.keep_prob)
+
+    # 定义多层循环神经网络核cell
     cell = tf.contrib.rnn.MultiRNNCell(
         [attn_cell() for _ in range(config.num_layers)], state_is_tuple=True)
 
+    # 初始化RNN核
     self._initial_state = cell.zero_state(batch_size, data_type())
 
+    # embedding输入数据
     with tf.device("/cpu:0"):
       embedding = tf.get_variable(
           "embedding", [vocab_size, size], dtype=data_type())
       inputs = tf.nn.embedding_lookup(embedding, input_.input_data)
 
+    # 若处在训练过程中，要对embedding好的输入数据进行Dropout
     if is_training and config.keep_prob < 1:
       inputs = tf.nn.dropout(inputs, config.keep_prob)
 
@@ -141,6 +149,7 @@ class PTBModel(object):
     # inputs = tf.unstack(inputs, num=num_steps, axis=1)
     # outputs, state = tf.contrib.rnn.static_rnn(
     #     cell, inputs, initial_state=self._initial_state)
+    # =====【RNN的主体】=====
     outputs = []
     state = self._initial_state
     with tf.variable_scope("RNN"):
