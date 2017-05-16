@@ -54,7 +54,7 @@ import time
 import numpy as np
 import tensorflow as tf
 
-from ptb import reader
+import reader
 
 flags = tf.flags
 logging = tf.logging
@@ -156,8 +156,10 @@ class PTBModel(object):
       for time_step in range(num_steps):
         if time_step > 0: tf.get_variable_scope().reuse_variables()
         (cell_output, state) = cell(inputs[:, time_step, :], state)
+        # 主要结果是outputs，每次循环都会append一个output
         outputs.append(cell_output)
 
+    # 还要进行softmax的矩阵相乘，并用tf.contrib.legacy_seq2seq.sequence_loss_by_example得到loss
     output = tf.reshape(tf.stack(axis=1, values=outputs), [-1, size])
     softmax_w = tf.get_variable(
         "softmax_w", [size, vocab_size], dtype=data_type())
@@ -364,7 +366,8 @@ def main(_):
     sv = tf.train.Supervisor(logdir=FLAGS.save_path)
     with sv.managed_session() as session:
       for i in range(config.max_max_epoch):
-        lr_decay = config.lr_decay ** max(i + 1 - config.max_epoch, 0.0)
+        # 动态更改learning rate
+        lr_decay = config.lr_decay ** max([i + 1 - config.max_epoch, 0.0])
         m.assign_lr(session, config.learning_rate * lr_decay)
 
         print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
